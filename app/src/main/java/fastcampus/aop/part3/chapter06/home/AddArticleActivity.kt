@@ -7,12 +7,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ImageView
-import android.widget.Toast
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.database.DatabaseReference
@@ -63,11 +61,51 @@ class AddArticleActivity: AppCompatActivity() {
             val price = findViewById<EditText>(R.id.priceEditText).text.toString()
             val sellerId = auth.currentUser?.uid.orEmpty()
 
-            val model = ArticleModel(sellerId, title, System.currentTimeMillis(), "$price 원", "")
-            articleDB.push().setValue(model)
+            showProgress()
 
-            finish()
+            //중간에 이미지가 있으면 업로드 과정 추가
+            if(selectedUri != null) {
+                val photoUri = selectedUri ?: return@setOnClickListener
+                uploadPhoto(photoUri,
+                    successHandler = {uri ->
+                        uploadArticle(sellerId, title, price, uri)
+                    },
+                    errorHandler = {
+                        Toast.makeText(this, "사진 업로드에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                        hideProgress()
+                    }
+                )
+            } else {
+                uploadArticle(sellerId, title, price, "")
+            }
         }
+    }
+
+    private fun uploadPhoto(uri: Uri, successHandler: (String) -> Unit, errorHandler: () -> Unit) {
+        val fileName = "${System.currentTimeMillis()}.png"
+        storage.reference.child("article/photo").child(fileName)
+            .putFile(uri)
+            .addOnCompleteListener {
+                if(it.isSuccessful) {
+                    storage.reference.child("article/photo").child(fileName).downloadUrl
+                        .addOnSuccessListener { uri ->
+                            successHandler(uri.toString())
+                        }.addOnFailureListener {
+                            errorHandler()
+                        }
+
+                } else {
+                    errorHandler()
+                }
+            }
+    }
+
+    private fun uploadArticle(sellerId: String, title: String, price: String, imageUri: String) {
+        val model = ArticleModel(sellerId, title, System.currentTimeMillis(), "$price 원", imageUri)
+        articleDB.push().setValue(model)
+
+        hideProgress()
+        finish()
     }
 
     override fun onRequestPermissionsResult(
@@ -91,6 +129,14 @@ class AddArticleActivity: AppCompatActivity() {
         val intent = Intent(Intent.ACTION_GET_CONTENT)
         intent.type = "image/*"
         startActivityForResult(intent, 2020)
+    }
+
+    private fun showProgress() {
+        findViewById<ProgressBar>(R.id.progressBar).isVisible = true
+    }
+
+    private fun hideProgress() {
+        findViewById<ProgressBar>(R.id.progressBar).isVisible = false
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
